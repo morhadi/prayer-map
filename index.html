@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Islamic Prayer Times World Map</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background-color: #1a1a2e;
+            color: #eee;
+        }
+
+        header {
+            background-color: #16213e;
+            padding: 15px 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            color: #4a90e2;
+        }
+
+        #controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .control-group label {
+            font-size: 12px;
+            color: #bbb;
+        }
+
+        select, input[type="datetime-local"] {
+            padding: 8px 12px;
+            border-radius: 5px;
+            border: 1px solid #3a4f6c;
+            background-color: #1a1a2e;
+            color: #eee;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        select:hover, input:hover {
+            border-color: #4a90e2;
+        }
+
+        #map-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #map-canvas {
+            width: 100%;
+            height: 100%;
+            cursor: grab;
+        }
+
+        #map-canvas:active {
+            cursor: grabbing;
+        }
+
+        #legend {
+            position: absolute;
+            bottom: 30px;
+            right: 10px;
+            background-color: rgba(22, 33, 62, 0.95);
+            padding: 15px;
+            border-radius: 8px;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+            min-width: 200px;
+        }
+
+        #legend h3 {
+            margin-bottom: 10px;
+            font-size: 16px;
+            border-bottom: 2px solid #4a90e2;
+            padding-bottom: 5px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 8px 0;
+            font-size: 14px;
+        }
+
+        .legend-color {
+            width: 30px;
+            height: 20px;
+            margin-right: 10px;
+            border-radius: 3px;
+            border: 1px solid #333;
+        }
+
+        #time-display {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(22, 33, 62, 0.95);
+            padding: 10px 15px;
+            border-radius: 8px;
+            z-index: 1000;
+            font-size: 14px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+        }
+
+        button {
+            padding: 8px 16px;
+            border-radius: 5px;
+            border: 1px solid #4a90e2;
+            background-color: #4a90e2;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #357abd;
+        }
+
+        #time-slider {
+            width: 200px;
+        }
+
+        #zoom-controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            z-index: 1000;
+        }
+
+        .zoom-btn {
+            width: 35px;
+            height: 35px;
+            font-size: 20px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🕌 Islamic Prayer Times World Map</h1>
+        <div id="controls">
+            <div class="control-group">
+                <label for="projection">Map Projection:</label>
+                <select id="projection">
+                    <option value="mercator">Mercator</option>
+                    <option value="equirectangular">Equirectangular</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="time-input">Select Time:</label>
+                <input type="datetime-local" id="time-input" />
+            </div>
+            <div class="control-group">
+                <label for="time-slider">Time Slider (hours):</label>
+                <input type="range" id="time-slider" min="0" max="23.5" step="0.5" value="12" />
+            </div>
+            <div class="control-group">
+                <label for="asr-method">Asr Calculation:</label>
+                <select id="asr-method">
+                    <option value="standard">Standard (Shafi'i, Maliki, Hanbali)</option>
+                    <option value="hanafi">Hanafi</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="calculation-method">Calculation Method:</label>
+                <select id="calculation-method">
+                    <option value="mwl">Muslim World League</option>
+                    <option value="isna">Islamic Society of North America (ISNA)</option>
+                    <option value="egypt">Egyptian General Authority</option>
+                    <option value="makkah">Umm Al-Qura University, Makkah</option>
+                    <option value="karachi">University of Islamic Sciences, Karachi</option>
+                    <option value="tehran">Institute of Geophysics, University of Tehran</option>
+                </select>
+            </div>
+            <button id="update-btn">Update Map</button>
+        </div>
+    </header>
+    <div id="map-container">
+        <canvas id="map-canvas"></canvas>
+        <div id="time-display">Loading...</div>
+        <div id="zoom-controls">
+            <button class="zoom-btn" id="zoom-in">+</button>
+            <button class="zoom-btn" id="zoom-out">−</button>
+        </div>
+        <div id="legend">
+            <h3>Prayer Zones</h3>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #1a237e;"></div>
+                <span>Fajr</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #f57c00;"></div>
+                <span>Ishraq</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #fdd835;"></div>
+                <span>Dhuhr</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #43a047;"></div>
+                <span>Asr</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #e53935;"></div>
+                <span>Maghrib</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #6a1b9a;"></div>
+                <span>Isha</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Prayer time calculation parameters
+        const calculationMethods = {
+            mwl: { fajr: 18, isha: 17, maghrib: '0 min', midnight: 'Standard' },
+            isna: { fajr: 15, isha: 15, maghrib: '0 min', midnight: 'Standard' },
+            egypt: { fajr: 19.5, isha: 17.5, maghrib: '0 min', midnight: 'Standard' },
+            makkah: { fajr: 18.5, isha: '90 min', maghrib: '0 min', midnight: 'Standard' },
+            karachi: { fajr: 18, isha: 18, maghrib: '0 min', midnight: 'Standard' },
+            tehran: { fajr: 17.7, isha: 14, maghrib: '4.5', midnight: 'Jafari' }
+        };
+
+        // Map state
+        let canvas, ctx;
+        let selectedTime = new Date();
+        let zoom = 1.5;
+        let offsetX = 0;
+        let offsetY = 0;
+        let isDragging = false;
+        let lastX, lastY;
+        let currentProjection = 'mercator';
+
+        // Initialize
+        function init() {
+            canvas = document.getElementById('map-canvas');
+            ctx = canvas.getContext('2d');
+            
+            resizeCanvas();
+            window.addEventListener('resize', () => {
+                resizeCanvas();
+                drawMap();
+            });
+            
+            setupEventListeners();
+            initializeTime();
+            drawMap();
+        }
+
+        function resizeCanvas() {
+            const container = document.getElementById('map-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+        }
+
+        function setupEventListeners() {
+            // Mouse events for panning
+            canvas.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                lastX = e.clientX;
+                lastY = e.clientY;
+            });
+
+            canvas.addEventListener('mousemove', (e) => {
+                if (isDragging) {
+                    const dx = e.clientX - lastX;
+                    const dy = e.clientY - lastY;
+                    offsetX += dx;
+                    offsetY += dy;
+                    lastX = e.clientX;
+                    lastY = e.clientY;
+                    drawMap();
+                }
+            });
+
+            canvas.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+
+            canvas.addEventListener('mouseleave', () => {
+                isDragging = false;
+            });
+
+            // Zoom controls
+            document.getElementById('zoom-in').addEventListener('click', () => {
+                zoom *= 1.2;
+                drawMap();
+            });
+
+            document.getElementById('zoom-out').addEventListener('click', () => {
+                zoom /= 1.2;
+                if (zoom < 0.5) zoom = 0.5;
+                drawMap();
+            });
+
+            // Mouse wheel zoom
+            canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? 0.9 : 1.1;
+                zoom *= delta;
+                if (zoom < 0.5) zoom = 0.5;
+                if (zoom > 10) zoom = 10;
+                drawMap();
+            });
+
+            // Control buttons
+            document.getElementById('update-btn').addEventListener('click', drawMap);
+            document.getElementById('time-input').addEventListener('change', updateFromTimeInput);
+            document.getElementById('time-slider').addEventListener('input', updateFromSlider);
+            document.getElementById('projection').addEventListener('change', (e) => {
+                currentProjection = e.target.value;
+                drawMap();
+            });
+        }
+
+        // Calculate solar position
+        function calculateSolarPosition(date, longitude) {
+            const J2000 = 2451545.0;
+            const jd = date.getTime() / 86400000 + 2440587.5;
+            const n = jd - J2000;
+            const L = (280.460 + 0.9856474 * n) % 360;
+            const g = (357.528 + 0.9856003 * n) % 360;
+            const gRad = g * Math.PI / 180;
+            const lambda = (L + 1.915 * Math.sin(gRad) + 0.020 * Math.sin(2 * gRad)) % 360;
+            const epsilon = 23.439 - 0.0000004 * n;
+            const epsilonRad = epsilon * Math.PI / 180;
+            const lambdaRad = lambda * Math.PI / 180;
+            
+            const declination = Math.asin(Math.sin(epsilonRad) * Math.sin(lambdaRad)) * 180 / Math.PI;
+            const eot = 4 * (L - Math.atan2(Math.cos(epsilonRad) * Math.sin(lambdaRad), Math.cos(lambdaRad)) * 180 / Math.PI);
+            const solarNoon = 12 - longitude / 15 - eot / 60;
+            
+            return { declination, eot, solarNoon };
+        }
+
+        // Calculate prayer times
+        function calculatePrayerTimes(lat, lng, date, method, asrMethod) {
+            const params = calculationMethods[method];
+            const { declination, solarNoon } = calculateSolarPosition(date, lng);
+            
+            const latRad = lat * Math.PI / 180;
+            const declRad = declination * Math.PI / 180;
+            
+            function hourAngle(angle) {
+                const angleRad = angle * Math.PI / 180;
+                const cosH = (Math.sin(angleRad) - Math.sin(latRad) * Math.sin(declRad)) / 
+                             (Math.cos(latRad) * Math.cos(declRad));
+                if (cosH > 1 || cosH < -1) return null;
+                return Math.acos(cosH) * 180 / Math.PI;
+            }
+            
+            const fajrAngle = typeof params.fajr === 'number' ? -params.fajr : -18;
+            const fajrHA = hourAngle(fajrAngle);
+            const fajr = fajrHA ? solarNoon - fajrHA / 15 : null;
+            
+            const sunriseHA = hourAngle(-0.833);
+            const sunrise = sunriseHA ? solarNoon - sunriseHA / 15 : null;
+            
+            const dhuhr = solarNoon;
+            
+            const asrFactor = asrMethod === 'hanafi' ? 2 : 1;
+            const asrAltitude = Math.atan(1 / (asrFactor + Math.tan(Math.abs(latRad - declRad)))) * 180 / Math.PI;
+            const asrHA = hourAngle(asrAltitude);
+            const asr = asrHA ? solarNoon + asrHA / 15 : null;
+            
+            const maghribHA = hourAngle(-0.833);
+            const maghrib = maghribHA ? solarNoon + maghribHA / 15 : null;
+            
+            let isha;
+            if (typeof params.isha === 'number') {
+                const ishaAngle = -params.isha;
+                const ishaHA = hourAngle(ishaAngle);
+                isha = ishaHA ? solarNoon + ishaHA / 15 : null;
+            } else {
+                isha = maghrib ? maghrib + 1.5 : null;
+            }
+            
+            return { fajr, sunrise, dhuhr, asr, maghrib, isha };
+        }
+
+        // Determine current prayer
+        function getCurrentPrayer(lat, lng, date, method, asrMethod) {
+            const times = calculatePrayerTimes(lat, lng, date, method, asrMethod);
+            
+            const utcHours = date.getUTCHours() + date.getUTCMinutes() / 60;
+            const localSolarTime = (utcHours + lng / 15 + 24) % 24;
+            
+            if (times.fajr === null || times.sunrise === null) {
+                return 'isha';
+            }
+            
+            let fajr = (times.fajr + 24) % 24;
+            let sunrise = (times.sunrise + 24) % 24;
+            let dhuhr = (times.dhuhr + 24) % 24;
+            let asr = (times.asr + 24) % 24;
+            let maghrib = (times.maghrib + 24) % 24;
+            let isha = (times.isha + 24) % 24;
+            
+            if (localSolarTime >= fajr && localSolarTime < sunrise) {
+                return 'fajr';
+            } else if (localSolarTime >= sunrise && localSolarTime < dhuhr) {
+                return 'ishraq';
+            } else if (localSolarTime >= dhuhr && localSolarTime < asr) {
+                return 'dhuhr';
+            } else if (localSolarTime >= asr && localSolarTime < maghrib) {
+                return 'asr';
+            } else if (localSolarTime >= maghrib && localSolarTime < isha) {
+                return 'maghrib';
+            } else {
+                return 'isha';
+            }
+        }
+
+        // Map projections
+        function latLngToXY(lat, lng) {
+            if (currentProjection === 'mercator') {
+                // Mercator projection
+                const x = (lng + 180) / 360;
+                const latRad = lat * Math.PI / 180;
+                const mercN = Math.log(Math.tan(Math.PI / 4 + latRad / 2));
+                const y = 0.5 - mercN / (2 * Math.PI);
+                return { x, y };
+            } else {
+                // Equirectangular projection
+                const x = (lng + 180) / 360;
+                const y = (90 - lat) / 180;
+                return { x, y };
+            }
+        }
+
+        function xyToLatLng(x, y) {
+            if (currentProjection === 'mercator') {
+                const lng = x * 360 - 180;
+                const mercN = (0.5 - y) * 2 * Math.PI;
+                const latRad = 2 * Math.atan(Math.exp(mercN)) - Math.PI / 2;
+                const lat = latRad * 180 / Math.PI;
+                return { lat, lng };
+            } else {
+                const lng = x * 360 - 180;
+                const lat = 90 - y * 180;
+                return { lat, lng };
+            }
+        }
+
+        // Draw the map
+        function drawMap() {
+            const method = document.getElementById('calculation-method').value;
+            const asrMethod = document.getElementById('asr-method').value;
+
+            const prayerColors = {
+                'fajr': '#1a237e',
+                'ishraq': '#f57c00',
+                'dhuhr': '#fdd835',
+                'asr': '#43a047',
+                'maghrib': '#e53935',
+                'isha': '#6a1b9a'
+            };
+
+            // Clear canvas
+            ctx.fillStyle = '#0a1929';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Calculate viewport
+            const centerX = canvas.width / 2 + offsetX;
+            const centerY = canvas.height / 2 + offsetY;
+
+            // Draw prayer zones
+            const pixelSize = 4; // Adjust for performance vs quality
+            for (let px = 0; px < canvas.width; px += pixelSize) {
+                for (let py = 0; py < canvas.height; py += pixelSize) {
+                    // Convert screen coordinates to world coordinates
+                    const worldX = (px - centerX) / (canvas.width * zoom / 2);
+                    const worldY = (py - centerY) / (canvas.height * zoom / 2);
+                    
+                    // Convert to normalized coordinates (0-1)
+                    const normX = worldX + 0.5;
+                    const normY = worldY + 0.5;
+                    
+                    if (normX < 0 || normX > 1 || normY < 0 || normY > 1) continue;
+                    
+                    // Convert to lat/lng
+                    const { lat, lng } = xyToLatLng(normX, normY);
+                    
+                    if (lat < -85 || lat > 85) continue;
+                    
+                    const prayer = getCurrentPrayer(lat, lng, selectedTime, method, asrMethod);
+                    ctx.fillStyle = prayerColors[prayer];
+                    ctx.fillRect(px, py, pixelSize, pixelSize);
+                }
+            }
+
+            // Draw grid lines
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.lineWidth = 1;
+            
+            // Latitude lines
+            for (let lat = -80; lat <= 80; lat += 20) {
+                ctx.beginPath();
+                for (let lng = -180; lng <= 180; lng += 5) {
+                    const { x, y } = latLngToXY(lat, lng);
+                    const screenX = (x - 0.5) * canvas.width * zoom + centerX;
+                    const screenY = (y - 0.5) * canvas.height * zoom + centerY;
+                    if (lng === -180) {
+                        ctx.moveTo(screenX, screenY);
+                    } else {
+                        ctx.lineTo(screenX, screenY);
+                    }
+                }
+                ctx.stroke();
+            }
+
+            // Longitude lines
+            for (let lng = -180; lng <= 180; lng += 30) {
+                ctx.beginPath();
+                for (let lat = -85; lat <= 85; lat += 5) {
+                    const { x, y } = latLngToXY(lat, lng);
+                    const screenX = (x - 0.5) * canvas.width * zoom + centerX;
+                    const screenY = (y - 0.5) * canvas.height * zoom + centerY;
+                    if (lat === -85) {
+                        ctx.moveTo(screenX, screenY);
+                    } else {
+                        ctx.lineTo(screenX, screenY);
+                    }
+                }
+                ctx.stroke();
+            }
+
+            updateTimeDisplay();
+        }
+
+        function updateTimeDisplay() {
+            const display = document.getElementById('time-display');
+            const options = { 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric', 
+                hour: '2-digit', 
+                minute: '2-digit',
+                timeZone: 'UTC',
+                timeZoneName: 'short'
+            };
+            display.textContent = selectedTime.toLocaleString('en-US', options);
+        }
+
+        function updateFromTimeInput() {
+            const timeInput = document.getElementById('time-input');
+            if (timeInput.value) {
+                selectedTime = new Date(timeInput.value);
+            }
+            drawMap();
+        }
+
+        function updateFromSlider() {
+            const slider = document.getElementById('time-slider');
+            const hours = parseFloat(slider.value);
+            const now = new Date();
+            selectedTime = new Date(Date.UTC(
+                now.getUTCFullYear(), 
+                now.getUTCMonth(), 
+                now.getUTCDate(), 
+                Math.floor(hours), 
+                (hours % 1) * 60
+            ));
+            
+            const timeInput = document.getElementById('time-input');
+            const pad = (n) => n.toString().padStart(2, '0');
+            timeInput.value = `${selectedTime.getUTCFullYear()}-${pad(selectedTime.getUTCMonth() + 1)}-${pad(selectedTime.getUTCDate())}T${pad(selectedTime.getUTCHours())}:${pad(selectedTime.getUTCMinutes())}`;
+            
+            drawMap();
+        }
+
+        function initializeTime() {
+            const now = new Date();
+            selectedTime = now;
+            
+            const timeInput = document.getElementById('time-input');
+            const pad = (n) => n.toString().padStart(2, '0');
+            timeInput.value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+            
+            const slider = document.getElementById('time-slider');
+            slider.value = now.getUTCHours() + now.getUTCMinutes() / 60;
+        }
+
+        // Start the application
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
