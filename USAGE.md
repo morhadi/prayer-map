@@ -101,11 +101,13 @@ Then navigate to `http://localhost:8080/index.html`
 
 ## Technical Notes
 
-- The application uses astronomical calculations to determine solar position
-- Prayer times are calculated based on sun angles relative to the horizon
+- The application uses **real OpenStreetMap tiles** for authentic geographic data
+- **Leaflet.js** provides professional-grade interactive mapping
+- Prayer times are calculated based on astronomical sun angles relative to the horizon
 - All calculations are performed in the browser (no server required)
-- The map uses HTML5 Canvas for efficient rendering
+- Prayer zones are rendered as a Canvas overlay on top of the real map
 - Times are displayed in UTC; users should mentally convert to their local timezone
+- Requires internet connection to load map tiles (first time and when panning/zooming)
 
 ## Browser Requirements
 
