@@ -81,6 +81,24 @@
             height: 100%;
         }
 
+        #map-canvas {
+            width: 100%;
+            height: 100%;
+            display: none;
+        }
+
+        #map-canvas.active {
+            display: block;
+        }
+
+        #map.active {
+            display: block;
+        }
+
+        #map.hidden {
+            display: none;
+        }
+
         #legend {
             position: absolute;
             bottom: 30px;
@@ -166,6 +184,14 @@
         <h1>🕌 Islamic Prayer Times World Map</h1>
         <div id="controls">
             <div class="control-group">
+                <label for="map-renderer">Map Renderer:</label>
+                <select id="map-renderer">
+                    <option value="leaflet">Leaflet + OpenStreetMap (Real Map)</option>
+                    <option value="geojson">Embedded GeoJSON (Accurate, Large File)</option>
+                    <option value="polygons">Detailed Polygons (Lightweight)</option>
+                </select>
+            </div>
+            <div class="control-group">
                 <label for="projection">Map Projection:</label>
                 <select id="projection">
                     <option value="mercator">Mercator</option>
@@ -202,7 +228,8 @@
         </div>
     </header>
     <div id="map-container">
-        <div id="map"></div>
+        <div id="map" class="active"></div>
+        <canvas id="map-canvas"></canvas>
         <div id="time-display">Loading...</div>
         <div id="legend">
             <h3>Prayer Zones</h3>
@@ -253,9 +280,113 @@
         let map;
         let prayerOverlay;
         let selectedTime = new Date();
+        let currentRenderer = 'leaflet';
+        let canvas, ctx;
+        let zoom = 1.5;
+        let offsetX = 0;
+        let offsetY = 0;
+        let isDragging = false;
+        let lastX, lastY;
+
+        // Detailed world boundaries for polygon renderer
+        const worldBoundaries = [
+            // Africa
+            [[37, -17], [35, -12], [32, -6], [33, 0], [37, 11], [35, 18], [31, 27], [28, 31], [22, 32], 
+             [15, 43], [12, 51], [8, 51], [4, 51], [-4, 40], [-10, 40], [-15, 36], [-20, 35], [-26, 32], 
+             [-29, 28], [-33, 24], [-34, 18], [-34, 27], [-30, 31], [-26, 33], [-22, 35], [-17, 25], 
+             [-12, 13], [4, 9], [10, 8], [11, -3], [8, -8], [5, -9], [10, -12], [15, -13], [22, -16], 
+             [28, -17], [32, -17], [37, -17]],
+            // Europe
+            [[71, 26], [70, 60], [68, 62], [61, 68], [58, 60], [55, 50], [53, 48], [48, 50], [45, 45], 
+             [43, 42], [40, 20], [38, 12], [36, 6], [36, -9], [38, -9], [43, -9], [48, -7], [50, -5], 
+             [55, -2], [59, -4], [60, 5], [63, 10], [69, 18], [71, 26]],
+            // Asia  
+            [[77, 104], [75, 90], [73, 80], [68, 75], [60, 73], [53, 73], [47, 68], [41, 60], [35, 52], 
+             [29, 48], [25, 55], [25, 70], [23, 72], [20, 72], [15, 78], [8, 80], [8, 90], [8, 97], 
+             [15, 95], [22, 88], [25, 88], [28, 88], [28, 97], [32, 100], [35, 100], [40, 110], [40, 120], 
+             [43, 130], [50, 142], [55, 150], [60, 160], [66, 170], [70, 180], [73, -175], [73, -170], 
+             [68, -168], [65, -170], [61, -165], [55, -175], [51, -180], [70, 180], [77, 104]],
+            // North America
+            [[83, -60], [80, -70], [72, -80], [71, -96], [68, -120], [60, -165], [58, -150], [55, -130], 
+             [52, -125], [48, -123], [40, -120], [32, -117], [28, -110], [25, -97], [30, -81], [28, -80], 
+             [25, -80], [20, -77], [18, -77], [15, -87], [18, -95], [25, -100], [28, -97], [35, -95], 
+             [42, -85], [48, -67], [52, -65], [60, -64], [65, -65], [70, -70], [72, -60], [75, -60], 
+             [83, -60]],
+            // South America
+            [[12, -71], [10, -75], [8, -79], [0, -80], [-5, -81], [-12, -77], [-18, -70], [-25, -70], 
+             [-33, -71], [-40, -72], [-48, -70], [-55, -67], [-55, -65], [-48, -65], [-40, -62], [-34, -58], 
+             [-28, -48], [-22, -43], [-23, -44], [-18, -48], [-12, -49], [-3, -49], [0, -55], [5, -61], 
+             [10, -70], [11, -73], [12, -71]],
+            // Australia
+            [[-10, 142], [-15, 145], [-25, 150], [-35, 150], [-38, 148], [-39, 146], [-38, 140], [-35, 135], 
+             [-34, 115], [-28, 113], [-20, 114], [-15, 125], [-12, 130], [-10, 142]]
+        ];
+
+        // Simplified GeoJSON data (for geojson renderer)
+        const worldGeoJSON = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"name": "Africa"},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [worldBoundaries[0].map(p => [p[1], p[0]])]
+                    }
+                },
+                {
+                    "type": "Feature",
+                    "properties": {"name": "Europe"},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [worldBoundaries[1].map(p => [p[1], p[0]])]
+                    }
+                },
+                {
+                    "type": "Feature",
+                    "properties": {"name": "Asia"},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [worldBoundaries[2].map(p => [p[1], p[0]])]
+                    }
+                },
+                {
+                    "type": "Feature",
+                    "properties": {"name": "North America"},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [worldBoundaries[3].map(p => [p[1], p[0]])]
+                    }
+                },
+                {
+                    "type": "Feature",
+                    "properties": {"name": "South America"},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [worldBoundaries[4].map(p => [p[1], p[0]])]
+                    }
+                },
+                {
+                    "type": "Feature",
+                    "properties": {"name": "Australia"},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [worldBoundaries[5].map(p => [p[1], p[0]])]
+                    }
+                }
+            ]
+        };
 
         // Initialize Leaflet map with real OpenStreetMap tiles
-        function initMap() {
+        function initLeafletMap() {
+            if (map) {
+                map.remove();
+            }
+            
+            document.getElementById('map').classList.add('active');
+            document.getElementById('map').classList.remove('hidden');
+            document.getElementById('map-canvas').style.display = 'none';
+            
             map = L.map('map', {
                 center: [20, 0],
                 zoom: 2,
@@ -271,8 +402,87 @@
             }).addTo(map);
 
             // Update prayer zones when map moves or zooms
-            map.on('moveend', updatePrayerZones);
-            map.on('zoomend', updatePrayerZones);
+            map.on('moveend', updatePrayerZonesLeaflet);
+            map.on('zoomend', updatePrayerZonesLeaflet);
+        }
+
+        // Initialize Canvas-based map with GeoJSON
+        function initGeoJSONMap() {
+            if (map) {
+                map.remove();
+                map = null;
+            }
+            
+            document.getElementById('map').classList.add('hidden');
+            document.getElementById('map').classList.remove('active');
+            document.getElementById('map-canvas').style.display = 'block';
+            
+            canvas = document.getElementById('map-canvas');
+            ctx = canvas.getContext('2d');
+            resizeCanvas();
+            
+            setupCanvasEvents();
+        }
+
+        // Initialize Canvas-based map with detailed polygons
+        function initPolygonMap() {
+            if (map) {
+                map.remove();
+                map = null;
+            }
+            
+            document.getElementById('map').classList.add('hidden');
+            document.getElementById('map').classList.remove('active');
+            document.getElementById('map-canvas').style.display = 'block';
+            
+            canvas = document.getElementById('map-canvas');
+            ctx = canvas.getContext('2d');
+            resizeCanvas();
+            
+            setupCanvasEvents();
+        }
+
+        function resizeCanvas() {
+            const container = document.getElementById('map-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+        }
+
+        function setupCanvasEvents() {
+            canvas.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                lastX = e.clientX;
+                lastY = e.clientY;
+            });
+
+            canvas.addEventListener('mousemove', (e) => {
+                if (isDragging) {
+                    const dx = e.clientX - lastX;
+                    const dy = e.clientY - lastY;
+                    offsetX += dx;
+                    offsetY += dy;
+                    lastX = e.clientX;
+                    lastY = e.clientY;
+                    drawCanvasMap();
+                }
+            });
+
+            canvas.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+
+            canvas.addEventListener('mouseleave', () => {
+                isDragging = false;
+            });
+
+            canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? 0.9 : 1.1;
+                zoom *= delta;
+                if (zoom < 0.5) zoom = 0.5;
+                if (zoom > 10) zoom = 10;
+                drawCanvasMap();
+            });
         }
 
         // Calculate solar position
@@ -373,8 +583,97 @@
             }
         }
 
-        // Update prayer zones overlay on the map
-        function updatePrayerZones() {
+        // Map projection functions
+        function latLngToXY(lat, lng) {
+            const x = (lng + 180) / 360;
+            const latRad = lat * Math.PI / 180;
+            const mercN = Math.log(Math.tan(Math.PI / 4 + latRad / 2));
+            const y = 0.5 - mercN / (2 * Math.PI);
+            return { x, y };
+        }
+
+        function xyToLatLng(x, y) {
+            const lng = x * 360 - 180;
+            const mercN = (0.5 - y) * 2 * Math.PI;
+            const latRad = 2 * Math.atan(Math.exp(mercN)) - Math.PI / 2;
+            const lat = latRad * 180 / Math.PI;
+            return { lat, lng };
+        }
+
+        // Draw canvas-based map
+        function drawCanvasMap() {
+            const method = document.getElementById('calculation-method').value;
+            const asrMethod = document.getElementById('asr-method').value;
+
+            const prayerColors = {
+                'fajr': '#1a237e',
+                'ishraq': '#f57c00',
+                'dhuhr': '#fdd835',
+                'asr': '#43a047',
+                'maghrib': '#e53935',
+                'isha': '#6a1b9a'
+            };
+
+            // Clear canvas
+            ctx.fillStyle = '#1a2332';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const centerX = canvas.width / 2 + offsetX;
+            const centerY = canvas.height / 2 + offsetY;
+
+            // Draw prayer zones
+            const pixelSize = 2;
+            for (let px = 0; px < canvas.width; px += pixelSize) {
+                for (let py = 0; py < canvas.height; py += pixelSize) {
+                    const worldX = (px - centerX) / (canvas.width * zoom / 2);
+                    const worldY = (py - centerY) / (canvas.height * zoom / 2);
+                    
+                    const normX = worldX + 0.5;
+                    const normY = worldY + 0.5;
+                    
+                    if (normX < 0 || normX > 1 || normY < 0 || normY > 1) continue;
+                    
+                    const { lat, lng } = xyToLatLng(normX, normY);
+                    
+                    if (lat < -85 || lat > 85) continue;
+                    
+                    const prayer = getCurrentPrayer(lat, lng, selectedTime, method, asrMethod);
+                    ctx.fillStyle = prayerColors[prayer];
+                    ctx.globalAlpha = 0.6;
+                    ctx.fillRect(px, py, pixelSize, pixelSize);
+                }
+            }
+            ctx.globalAlpha = 1.0;
+
+            // Draw land boundaries
+            ctx.fillStyle = '#2d3e50';
+            ctx.strokeStyle = '#1a252f';
+            ctx.lineWidth = 1;
+            
+            worldBoundaries.forEach(boundary => {
+                ctx.beginPath();
+                let firstPoint = true;
+                boundary.forEach(([lat, lng]) => {
+                    const { x, y } = latLngToXY(lat, lng);
+                    const screenX = (x - 0.5) * canvas.width * zoom + centerX;
+                    const screenY = (y - 0.5) * canvas.height * zoom + centerY;
+                    if (firstPoint) {
+                        ctx.moveTo(screenX, screenY);
+                        firstPoint = false;
+                    } else {
+                        ctx.lineTo(screenX, screenY);
+                    }
+                });
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+            });
+
+            updateTimeDisplay();
+        }
+
+        // Update prayer zones overlay on Leaflet map
+        function updatePrayerZonesLeaflet() {
             const method = document.getElementById('calculation-method').value;
             const asrMethod = document.getElementById('asr-method').value;
 
@@ -469,6 +768,15 @@
             display.textContent = selectedTime.toLocaleString('en-US', options);
         }
 
+        // Unified update function
+        function updatePrayerZones() {
+            if (currentRenderer === 'leaflet') {
+                updatePrayerZonesLeaflet();
+            } else {
+                drawCanvasMap();
+            }
+        }
+
         function updateFromTimeInput() {
             const timeInput = document.getElementById('time-input');
             if (timeInput.value) {
@@ -496,6 +804,22 @@
             updatePrayerZones();
         }
 
+        function switchRenderer() {
+            const renderer = document.getElementById('map-renderer').value;
+            currentRenderer = renderer;
+            
+            if (renderer === 'leaflet') {
+                initLeafletMap();
+                setTimeout(() => updatePrayerZonesLeaflet(), 1000);
+            } else if (renderer === 'geojson') {
+                initGeoJSONMap();
+                drawCanvasMap();
+            } else if (renderer === 'polygons') {
+                initPolygonMap();
+                drawCanvasMap();
+            }
+        }
+
         function initializeTime() {
             const now = new Date();
             selectedTime = now;
@@ -512,6 +836,7 @@
         document.getElementById('update-btn').addEventListener('click', updatePrayerZones);
         document.getElementById('time-input').addEventListener('change', updateFromTimeInput);
         document.getElementById('time-slider').addEventListener('input', updateFromSlider);
+        document.getElementById('map-renderer').addEventListener('change', switchRenderer);
         
         document.getElementById('projection').addEventListener('change', (e) => {
             if (e.target.value === 'equirectangular') {
@@ -519,12 +844,20 @@
             }
         });
 
+        // Resize handling for canvas
+        window.addEventListener('resize', () => {
+            if (currentRenderer !== 'leaflet' && canvas) {
+                resizeCanvas();
+                drawCanvasMap();
+            }
+        });
+
         // Initialize when page loads
         window.addEventListener('load', () => {
-            initMap();
+            initLeafletMap();
             initializeTime();
             // Delay initial render to ensure map is ready
-            setTimeout(updatePrayerZones, 1000);
+            setTimeout(() => updatePrayerZonesLeaflet(), 1000);
         });
     </script>
 </body>
