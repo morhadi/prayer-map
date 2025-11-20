@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Islamic Prayer Times World Map</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+          crossorigin=""/>
+    
     <style>
         * {
             margin: 0;
@@ -24,6 +30,7 @@
             background-color: #16213e;
             padding: 15px 20px;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            z-index: 1001;
         }
 
         h1 {
@@ -67,17 +74,11 @@
         #map-container {
             flex: 1;
             position: relative;
-            overflow: hidden;
         }
 
-        #map-canvas {
+        #map {
             width: 100%;
             height: 100%;
-            cursor: grab;
-        }
-
-        #map-canvas:active {
-            cursor: grabbing;
         }
 
         #legend {
@@ -145,24 +146,18 @@
             width: 200px;
         }
 
-        #zoom-controls {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-            z-index: 1000;
+        .leaflet-container {
+            background-color: #1a2332;
         }
 
-        .zoom-btn {
-            width: 35px;
-            height: 35px;
-            font-size: 20px;
-            padding: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+        /* Leaflet control customization */
+        .leaflet-control-zoom a {
+            background-color: rgba(22, 33, 62, 0.9) !important;
+            color: #4a90e2 !important;
+        }
+
+        .leaflet-control-zoom a:hover {
+            background-color: rgba(74, 144, 226, 0.3) !important;
         }
     </style>
 </head>
@@ -207,12 +202,8 @@
         </div>
     </header>
     <div id="map-container">
-        <canvas id="map-canvas"></canvas>
+        <div id="map"></div>
         <div id="time-display">Loading...</div>
-        <div id="zoom-controls">
-            <button class="zoom-btn" id="zoom-in">+</button>
-            <button class="zoom-btn" id="zoom-out">−</button>
-        </div>
         <div id="legend">
             <h3>Prayer Zones</h3>
             <div class="legend-item">
@@ -242,6 +233,11 @@
         </div>
     </div>
 
+    <!-- Leaflet JavaScript -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+            crossorigin=""></script>
+    
     <script>
         // Prayer time calculation parameters
         const calculationMethods = {
@@ -254,95 +250,29 @@
         };
 
         // Map state
-        let canvas, ctx;
+        let map;
+        let prayerOverlay;
         let selectedTime = new Date();
-        let zoom = 1.5;
-        let offsetX = 0;
-        let offsetY = 0;
-        let isDragging = false;
-        let lastX, lastY;
-        let currentProjection = 'mercator';
 
-        // Initialize
-        function init() {
-            canvas = document.getElementById('map-canvas');
-            ctx = canvas.getContext('2d');
-            
-            resizeCanvas();
-            window.addEventListener('resize', () => {
-                resizeCanvas();
-                drawMap();
-            });
-            
-            setupEventListeners();
-            initializeTime();
-            drawMap();
-        }
-
-        function resizeCanvas() {
-            const container = document.getElementById('map-container');
-            canvas.width = container.clientWidth;
-            canvas.height = container.clientHeight;
-        }
-
-        function setupEventListeners() {
-            // Mouse events for panning
-            canvas.addEventListener('mousedown', (e) => {
-                isDragging = true;
-                lastX = e.clientX;
-                lastY = e.clientY;
+        // Initialize Leaflet map with real OpenStreetMap tiles
+        function initMap() {
+            map = L.map('map', {
+                center: [20, 0],
+                zoom: 2,
+                minZoom: 2,
+                maxZoom: 8,
+                worldCopyJump: true
             });
 
-            canvas.addEventListener('mousemove', (e) => {
-                if (isDragging) {
-                    const dx = e.clientX - lastX;
-                    const dy = e.clientY - lastY;
-                    offsetX += dx;
-                    offsetY += dy;
-                    lastX = e.clientX;
-                    lastY = e.clientY;
-                    drawMap();
-                }
-            });
+            // Add OpenStreetMap tiles - REAL map data
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                maxZoom: 19
+            }).addTo(map);
 
-            canvas.addEventListener('mouseup', () => {
-                isDragging = false;
-            });
-
-            canvas.addEventListener('mouseleave', () => {
-                isDragging = false;
-            });
-
-            // Zoom controls
-            document.getElementById('zoom-in').addEventListener('click', () => {
-                zoom *= 1.2;
-                drawMap();
-            });
-
-            document.getElementById('zoom-out').addEventListener('click', () => {
-                zoom /= 1.2;
-                if (zoom < 0.5) zoom = 0.5;
-                drawMap();
-            });
-
-            // Mouse wheel zoom
-            canvas.addEventListener('wheel', (e) => {
-                e.preventDefault();
-                const delta = e.deltaY > 0 ? 0.9 : 1.1;
-                zoom *= delta;
-                if (zoom < 0.5) zoom = 0.5;
-                if (zoom > 10) zoom = 10;
-                drawMap();
-            });
-
-            // Control buttons
-            document.getElementById('update-btn').addEventListener('click', drawMap);
-            document.getElementById('time-input').addEventListener('change', updateFromTimeInput);
-            document.getElementById('time-slider').addEventListener('input', updateFromSlider);
-            document.getElementById('projection').addEventListener('change', (e) => {
-                currentProjection = e.target.value;
-                drawMap();
-            });
+            // Update prayer zones when map moves or zooms
+            map.on('moveend', updatePrayerZones);
+            map.on('zoomend', updatePrayerZones);
         }
 
         // Calculate solar position
@@ -365,7 +295,7 @@
             return { declination, eot, solarNoon };
         }
 
-        // Calculate prayer times
+        // Calculate prayer times for a location
         function calculatePrayerTimes(lat, lng, date, method, asrMethod) {
             const params = calculationMethods[method];
             const { declination, solarNoon } = calculateSolarPosition(date, lng);
@@ -410,7 +340,7 @@
             return { fajr, sunrise, dhuhr, asr, maghrib, isha };
         }
 
-        // Determine current prayer
+        // Determine which prayer time is active at a location
         function getCurrentPrayer(lat, lng, date, method, asrMethod) {
             const times = calculatePrayerTimes(lat, lng, date, method, asrMethod);
             
@@ -443,192 +373,84 @@
             }
         }
 
-        // Map projections
-        function latLngToXY(lat, lng) {
-            if (currentProjection === 'mercator') {
-                // Mercator projection
-                const x = (lng + 180) / 360;
-                const latRad = lat * Math.PI / 180;
-                const mercN = Math.log(Math.tan(Math.PI / 4 + latRad / 2));
-                const y = 0.5 - mercN / (2 * Math.PI);
-                return { x, y };
-            } else {
-                // Equirectangular projection
-                const x = (lng + 180) / 360;
-                const y = (90 - lat) / 180;
-                return { x, y };
-            }
-        }
-
-        function xyToLatLng(x, y) {
-            if (currentProjection === 'mercator') {
-                const lng = x * 360 - 180;
-                const mercN = (0.5 - y) * 2 * Math.PI;
-                const latRad = 2 * Math.atan(Math.exp(mercN)) - Math.PI / 2;
-                const lat = latRad * 180 / Math.PI;
-                return { lat, lng };
-            } else {
-                const lng = x * 360 - 180;
-                const lat = 90 - y * 180;
-                return { lat, lng };
-            }
-        }
-
-        // Simplified country boundaries (major landmasses)
-        const worldBoundaries = [
-            // Continents as polygons [lat, lng] pairs
-            // Simplified Africa
-            [[37, -17], [32, -6], [37, 11], [31, 27], [22, 32], [15, 43], [12, 51], [4, 51], [-10, 40], 
-             [-26, 32], [-34, 18], [-34, 27], [-22, 35], [-17, 25], [-12, 13], [4, 9], [10, 8], 
-             [11, -3], [5, -9], [15, -13], [37, -17]],
-            // Simplified Europe
-            [[71, 26], [70, 60], [61, 68], [58, 60], [55, 50], [48, 50], [43, 42], [36, 6], 
-             [36, -9], [43, -9], [50, -5], [59, -4], [60, 5], [69, 18], [71, 26]],
-            // Simplified Asia
-            [[77, 104], [73, 80], [53, 73], [41, 60], [29, 48], [25, 55], [25, 70], [20, 72], 
-             [8, 80], [8, 97], [22, 88], [28, 88], [28, 97], [35, 100], [40, 120], [50, 142], 
-             [60, 160], [66, 170], [70, 180], [73, -170], [65, -170], [61, -165], [51, -180], 
-             [77, 104]],
-            // Simplified North America
-            [[83, -60], [72, -80], [71, -96], [60, -165], [55, -130], [48, -123], [32, -117], 
-             [25, -97], [30, -81], [25, -80], [18, -77], [15, -87], [18, -95], [28, -97], 
-             [48, -67], [60, -64], [70, -70], [72, -60], [83, -60]],
-            // Simplified South America
-            [[12, -71], [8, -79], [-5, -81], [-18, -70], [-33, -71], [-55, -67], [-55, -65], 
-             [-40, -62], [-34, -58], [-22, -43], [-23, -44], [-3, -49], [5, -61], [11, -73], [12, -71]],
-            // Simplified Australia
-            [[-10, 142], [-38, 148], [-39, 146], [-34, 115], [-20, 114], [-12, 130], [-10, 142]]
-        ];
-
-        // Draw the map
-        function drawMap() {
+        // Update prayer zones overlay on the map
+        function updatePrayerZones() {
             const method = document.getElementById('calculation-method').value;
             const asrMethod = document.getElementById('asr-method').value;
 
             const prayerColors = {
-                'fajr': '#1a237e',
-                'ishraq': '#f57c00',
-                'dhuhr': '#fdd835',
-                'asr': '#43a047',
-                'maghrib': '#e53935',
-                'isha': '#6a1b9a'
+                'fajr': 'rgba(26, 35, 126, 0.5)',
+                'ishraq': 'rgba(245, 124, 0, 0.5)',
+                'dhuhr': 'rgba(253, 216, 53, 0.5)',
+                'asr': 'rgba(67, 160, 71, 0.5)',
+                'maghrib': 'rgba(229, 57, 53, 0.5)',
+                'isha': 'rgba(106, 27, 154, 0.5)'
             };
 
-            // Clear canvas with ocean color
-            ctx.fillStyle = '#1a2332';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            // Remove existing overlay
+            if (prayerOverlay) {
+                map.removeLayer(prayerOverlay);
+            }
 
-            // Calculate viewport
-            const centerX = canvas.width / 2 + offsetX;
-            const centerY = canvas.height / 2 + offsetY;
+            // Get map bounds and size
+            const bounds = map.getBounds();
+            const size = map.getSize();
+            
+            // Create canvas for prayer zones
+            const canvas = document.createElement('canvas');
+            canvas.width = size.x;
+            canvas.height = size.y;
+            const ctx = canvas.getContext('2d');
 
-            // Draw prayer zones with improved resolution
-            const pixelSize = 2; // Improved from 4 to 2 for better quality
-            for (let px = 0; px < canvas.width; px += pixelSize) {
-                for (let py = 0; py < canvas.height; py += pixelSize) {
-                    // Convert screen coordinates to world coordinates
-                    const worldX = (px - centerX) / (canvas.width * zoom / 2);
-                    const worldY = (py - centerY) / (canvas.height * zoom / 2);
+            // Render prayer zones - sample every 2 pixels for balance between performance and quality
+            const pixelStep = 2;
+            const imageData = ctx.createImageData(canvas.width, canvas.height);
+            
+            for (let x = 0; x < canvas.width; x += pixelStep) {
+                for (let y = 0; y < canvas.height; y += pixelStep) {
+                    const point = map.containerPointToLatLng([x, y]);
+                    const lat = point.lat;
+                    let lng = point.lng;
                     
-                    // Convert to normalized coordinates (0-1)
-                    const normX = worldX + 0.5;
-                    const normY = worldY + 0.5;
-                    
-                    if (normX < 0 || normX > 1 || normY < 0 || normY > 1) continue;
-                    
-                    // Convert to lat/lng
-                    const { lat, lng } = xyToLatLng(normX, normY);
+                    // Normalize longitude to -180 to 180
+                    while (lng > 180) lng -= 360;
+                    while (lng < -180) lng += 360;
                     
                     if (lat < -85 || lat > 85) continue;
                     
                     const prayer = getCurrentPrayer(lat, lng, selectedTime, method, asrMethod);
-                    ctx.fillStyle = prayerColors[prayer];
-                    ctx.globalAlpha = 0.6; // Semi-transparent to see land underneath
-                    ctx.fillRect(px, py, pixelSize, pixelSize);
-                }
-            }
-            ctx.globalAlpha = 1.0; // Reset alpha
-
-            // Draw landmasses (countries/continents)
-            ctx.fillStyle = '#2d3e50';
-            ctx.strokeStyle = '#1a252f';
-            ctx.lineWidth = 1;
-            
-            worldBoundaries.forEach(boundary => {
-                ctx.beginPath();
-                let firstPoint = true;
-                boundary.forEach(([lat, lng]) => {
-                    const { x, y } = latLngToXY(lat, lng);
-                    const screenX = (x - 0.5) * canvas.width * zoom + centerX;
-                    const screenY = (y - 0.5) * canvas.height * zoom + centerY;
-                    if (firstPoint) {
-                        ctx.moveTo(screenX, screenY);
-                        firstPoint = false;
-                    } else {
-                        ctx.lineTo(screenX, screenY);
-                    }
-                });
-                ctx.closePath();
-                ctx.fill();
-                ctx.stroke();
-            });
-
-            // Draw country boundaries with more detail
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-            ctx.lineWidth = 0.5;
-            worldBoundaries.forEach(boundary => {
-                ctx.beginPath();
-                let firstPoint = true;
-                boundary.forEach(([lat, lng]) => {
-                    const { x, y } = latLngToXY(lat, lng);
-                    const screenX = (x - 0.5) * canvas.width * zoom + centerX;
-                    const screenY = (y - 0.5) * canvas.height * zoom + centerY;
-                    if (firstPoint) {
-                        ctx.moveTo(screenX, screenY);
-                        firstPoint = false;
-                    } else {
-                        ctx.lineTo(screenX, screenY);
-                    }
-                });
-                ctx.closePath();
-                ctx.stroke();
-            });
-
-            // Draw grid lines
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-            ctx.lineWidth = 0.5;
-            
-            // Latitude lines
-            for (let lat = -80; lat <= 80; lat += 20) {
-                ctx.beginPath();
-                for (let lng = -180; lng <= 180; lng += 5) {
-                    const { x, y } = latLngToXY(lat, lng);
-                    const screenX = (x - 0.5) * canvas.width * zoom + centerX;
-                    const screenY = (y - 0.5) * canvas.height * zoom + centerY;
-                    if (lng === -180) {
-                        ctx.moveTo(screenX, screenY);
-                    } else {
-                        ctx.lineTo(screenX, screenY);
+                    const color = prayerColors[prayer];
+                    
+                    // Parse RGBA color
+                    const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+),?\s*([\d.]+)?\)/);
+                    if (match) {
+                        const r = parseInt(match[1]);
+                        const g = parseInt(match[2]);
+                        const b = parseInt(match[3]);
+                        const a = match[4] ? parseFloat(match[4]) * 255 : 255;
+                        
+                        // Fill the pixel block
+                        for (let dx = 0; dx < pixelStep && x + dx < canvas.width; dx++) {
+                            for (let dy = 0; dy < pixelStep && y + dy < canvas.height; dy++) {
+                                const idx = ((y + dy) * canvas.width + (x + dx)) * 4;
+                                imageData.data[idx] = r;
+                                imageData.data[idx + 1] = g;
+                                imageData.data[idx + 2] = b;
+                                imageData.data[idx + 3] = a;
+                            }
+                        }
                     }
                 }
-                ctx.stroke();
             }
 
-            // Longitude lines
-            for (let lng = -180; lng <= 180; lng += 30) {
-                ctx.beginPath();
-                for (let lat = -85; lat <= 85; lat += 5) {
-                    const { x, y } = latLngToXY(lat, lng);
-                    const screenX = (x - 0.5) * canvas.width * zoom + centerX;
-                    const screenY = (y - 0.5) * canvas.height * zoom + centerY;
-                    if (lat === -85) {
-                        ctx.moveTo(screenX, screenY);
-                    } else {
-                        ctx.lineTo(screenX, screenY);
-                    }
-                }
-                ctx.stroke();
-            }
+            ctx.putImageData(imageData, 0, 0);
+
+            // Add canvas as image overlay on top of the real map
+            const imageUrl = canvas.toDataURL();
+            prayerOverlay = L.imageOverlay(imageUrl, bounds, {
+                opacity: 0.6,
+                interactive: false
+            }).addTo(map);
 
             updateTimeDisplay();
         }
@@ -652,7 +474,7 @@
             if (timeInput.value) {
                 selectedTime = new Date(timeInput.value);
             }
-            drawMap();
+            updatePrayerZones();
         }
 
         function updateFromSlider() {
@@ -671,7 +493,7 @@
             const pad = (n) => n.toString().padStart(2, '0');
             timeInput.value = `${selectedTime.getUTCFullYear()}-${pad(selectedTime.getUTCMonth() + 1)}-${pad(selectedTime.getUTCDate())}T${pad(selectedTime.getUTCHours())}:${pad(selectedTime.getUTCMinutes())}`;
             
-            drawMap();
+            updatePrayerZones();
         }
 
         function initializeTime() {
@@ -686,8 +508,24 @@
             slider.value = now.getUTCHours() + now.getUTCMinutes() / 60;
         }
 
-        // Start the application
-        window.addEventListener('load', init);
+        // Event listeners
+        document.getElementById('update-btn').addEventListener('click', updatePrayerZones);
+        document.getElementById('time-input').addEventListener('change', updateFromTimeInput);
+        document.getElementById('time-slider').addEventListener('input', updateFromSlider);
+        
+        document.getElementById('projection').addEventListener('change', (e) => {
+            if (e.target.value === 'equirectangular') {
+                alert('Note: For Equirectangular projection with Leaflet, proj4leaflet library is needed. Mercator is the standard web map projection.');
+            }
+        });
+
+        // Initialize when page loads
+        window.addEventListener('load', () => {
+            initMap();
+            initializeTime();
+            // Delay initial render to ensure map is ready
+            setTimeout(updatePrayerZones, 1000);
+        });
     </script>
 </body>
 </html>

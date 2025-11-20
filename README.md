@@ -41,9 +41,12 @@ A web application that visualizes Islamic prayer times across the world in real-
 ## Technical Details
 
 - **Built with**: HTML5, CSS3, JavaScript
-- **Mapping Library**: Leaflet.js
-- **Prayer Calculations**: Custom astronomical calculations based on sun position
+- **Mapping Library**: Leaflet.js with real OpenStreetMap tiles
+- **Map Data**: Genuine geographic data from OpenStreetMap contributors
+- **Prayer Calculations**: Custom astronomical calculations based on solar position
+- **Rendering**: Canvas-based prayer zone overlay on top of real map tiles
 - **Responsive Design**: Works on desktop and mobile devices
+- **No Backend Required**: Runs entirely in the browser
 
 ## Installation
 
